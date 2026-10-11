@@ -38,12 +38,17 @@ public class OnboardingActivity extends Activity {
     static final String KEY_STEP = "onboarding_step";
     static final int STEPS = 5;
     private static final int REQ_HOME = 7;
-    private static final int BG = 0xFF0E0F13, CARD = 0xFF1C1D22, ACCENT = 0xFF6E8BFF, DIM = 0xFF9A9CA6;
+    private static final int BG = Ui.BG, CARD = Ui.CARD, ACCENT = Ui.ACCENT, DIM = Ui.DIM;
 
     private FrameLayout body;
     private LinearLayout dots;
     private ValueAnimator demo;
     private int step;
+    // Picker state: the row the user tapped, and the rows so selection can restyle in place.
+    private String pickSel;
+    private final List<View> pickRows = new ArrayList<>();
+    private final List<String> pickPkgs = new ArrayList<>();
+    private TextView pickButton;
 
     static void open(Context c) {
         c.startActivity(new Intent(c, OnboardingActivity.class)
@@ -90,6 +95,8 @@ public class OnboardingActivity extends Activity {
         if (demo != null) { demo.cancel(); demo = null; }
         body.removeAllViews();
         dots.removeAllViews();
+        // The picker is a full-height list with its own button, like the demo: no step dots there.
+        dots.setVisibility(step == 1 ? View.GONE : View.VISIBLE);
         for (int i = 0; i < STEPS; i++) {
             View d = new View(this);
             GradientDrawable g = new GradientDrawable(); g.setCornerRadius(dp(4));
@@ -125,8 +132,15 @@ public class OnboardingActivity extends Activity {
 
     private void pickApp() {
         LinearLayout p = page();
-        p.addView(title("What should Home open?"));
-        p.addView(text("Pick the app every Home press lands in. AI apps are listed first, but any app works. You can change it later."));
+        p.setPadding(dp(24), dp(36), dp(24), dp(24));
+        TextView t = title("What should Home open?");
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        t.setPadding(0, 0, 0, dp(6));
+        p.addView(t);
+        TextView sub = text("Pick the app every Home press lands in.");
+        sub.setTextSize(14);
+        sub.setPadding(0, 0, 0, dp(14));
+        p.addView(sub);
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         PackageManager pm = getPackageManager();
@@ -143,58 +157,92 @@ public class OnboardingActivity extends Activity {
         Collections.sort(ai, byLabel);
         Collections.sort(apps, byLabel);
         String current = prefs().getString(HomeActivity.KEY_TARGET, null);
+        pickSel = (current != null && pm.getLaunchIntentForPackage(current) != null) ? current : null;
+        pickRows.clear(); pickPkgs.clear();
         if (!ai.isEmpty()) {
-            list.addView(section("AI apps on this phone"));
-            for (ResolveInfo ri : ai) list.addView(appRow(ri, null, current));
-            list.addView(section("All apps"));
+            list.addView(section("Featured", true));
+            for (ResolveInfo ri : ai) list.addView(appRow(ri, "Your AI agent, a press away"));
+            list.addView(section("All apps", false));
         }
-        for (ResolveInfo ri : apps) list.addView(appRow(ri, null, current));
+        for (ResolveInfo ri : apps) list.addView(appRow(ri, null));
         ScrollView sv = new ScrollView(this);
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
         sv.addView(list);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-1, 0, 1f);
-        slp.topMargin = dp(12);
+        slp.leftMargin = -dp(8); slp.rightMargin = -dp(8);   // cards sit a little wider than the text, as in the demo
         p.addView(sv, slp);
+        pickButton = primary("Set as Home app", v -> confirmPick());
+        p.addView(pickButton);
+        restylePick();
         body.addView(p);
     }
 
-    private View appRow(ResolveInfo ri, String subtitle, String current) {
+    /** "Set as Home app" on the picker: save the app, then ask Android to make Landing the Home app. */
+    private void confirmPick() {
+        if (pickSel == null) return;
+        HomeActivity.setTarget(this, pickSel);
+        if (isHome()) { go(3); return; }
+        step = 2; prefs().edit().putInt(KEY_STEP, 2).apply();   // if the prompt is dismissed, come back to the Home step
+        requestHome();
+    }
+
+    private void restylePick() {
+        for (int i = 0; i < pickRows.size(); i++) {
+            View row = pickRows.get(i);
+            boolean sel = pickPkgs.get(i).equals(pickSel);
+            GradientDrawable g = new GradientDrawable(); g.setCornerRadius(dp(14));
+            g.setColor(sel ? Ui.CARD_SELECTED : CARD);
+            if (sel) g.setStroke(dp(2), ACCENT);
+            row.setBackground(g);
+            View check = row.findViewWithTag("check");
+            if (check != null) check.setVisibility(sel ? View.VISIBLE : View.INVISIBLE);
+        }
+        if (pickButton != null) {
+            boolean on = pickSel != null;
+            pickButton.setEnabled(on);
+            ((GradientDrawable) pickButton.getBackground()).setColor(on ? ACCENT : Ui.ACCENT_DISABLED);
+        }
+    }
+
+    private View appRow(ResolveInfo ri, String subtitle) {
         PackageManager pm = getPackageManager();
         final String pkg = ri.activityInfo.packageName;
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(14), dp(12), dp(14), dp(12));
-        GradientDrawable g = new GradientDrawable(); g.setCornerRadius(dp(16));
-        g.setColor(pkg.equals(current) ? 0xFF2A3360 : CARD);
-        row.setBackground(g);
+        row.setPadding(dp(15), 0, dp(12), 0);
         ImageView iv = new ImageView(this);
         Drawable d = ri.loadIcon(pm); iv.setImageDrawable(d);
-        row.addView(iv, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        row.addView(iv, new LinearLayout.LayoutParams(dp(34), dp(34)));
         LinearLayout labels = new LinearLayout(this);
         labels.setOrientation(LinearLayout.VERTICAL);
-        labels.setPadding(dp(14), 0, 0, 0);
+        labels.setPadding(dp(13), 0, 0, 0);
         TextView name = new TextView(this);
         name.setText(ri.loadLabel(pm)); name.setTextColor(Color.WHITE); name.setTextSize(16);
+        name.setTypeface(Ui.font(this, subtitle != null ? Ui.SEMIBOLD : Ui.MEDIUM));
+        name.setSingleLine(true); name.setEllipsize(android.text.TextUtils.TruncateAt.END);
         labels.addView(name);
         if (subtitle != null) {
             TextView sub = new TextView(this);
-            sub.setText(subtitle); sub.setTextColor(DIM); sub.setTextSize(13);
+            sub.setText(subtitle); sub.setTextColor(DIM); sub.setTextSize(12.5f);
+            sub.setTypeface(Ui.font(this, Ui.REGULAR));
+            sub.setPadding(0, dp(1), 0, 0);
             labels.addView(sub);
         }
         row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1f));
-        if (pkg.equals(current)) {
-            TextView check = new TextView(this);
-            check.setText("\u2713"); check.setTextColor(ACCENT); check.setTextSize(20);
-            row.addView(check);
-        }
+        Ui.Check check = new Ui.Check(this);
+        check.setTag("check");
+        row.addView(check, new LinearLayout.LayoutParams(dp(24), dp(24)));
         row.setOnClickListener(v -> {
             v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
-            HomeActivity.setTarget(this, pkg);
-            go(2);
+            pickSel = pkg;
+            restylePick();
         });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(8);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(subtitle != null ? 58 : 50));
+        lp.bottomMargin = dp(6);
         row.setLayoutParams(lp);
+        pickRows.add(row); pickPkgs.add(pkg);
         return row;
     }
 
@@ -295,7 +343,7 @@ public class OnboardingActivity extends Activity {
         String app = HomeActivity.appLabel(this, HomeActivity.findTargetPackage(this));
         p.addView(title("Your other apps"));
         p.addView(text("Press Home twice, quickly, to pull up all your apps. Swipe the sheet down or press Home again to go back to " + app + ". "
-                + "Long-press any app to make it your Home app, or tap \u2699 for settings."));
+                + "Long-press any app to make it your Home app, or tap the settings button next to search."));
         p.addView(demoPhone(app), demoLp());
         spacer(p);
         p.addView(primary("Done, take me to " + app, v -> finishSetup()));
@@ -311,38 +359,44 @@ public class OnboardingActivity extends Activity {
     /** A tiny looping animation: two Home taps, then the app sheet springs up and back down. */
     private View demoPhone(String app) {
         FrameLayout phone = new FrameLayout(this);
-        GradientDrawable frame = new GradientDrawable(); frame.setColor(0xFF23252D); frame.setCornerRadius(dp(26));
-        frame.setStroke(dp(3), 0xFF3A3D48);
+        GradientDrawable frame = new GradientDrawable(); frame.setColor(0xFF0B0B0B); frame.setCornerRadius(dp(26));
+        frame.setStroke(dp(2), 0xFF555552);
         phone.setBackground(frame);
-        phone.setPadding(dp(8), dp(8), dp(8), dp(8));
+        phone.setPadding(dp(6), dp(6), dp(6), dp(6));
         phone.setClipToOutline(true);
 
         TextView screen = new TextView(this);
         screen.setText(app); screen.setTextColor(Color.WHITE); screen.setTextSize(15);
+        screen.setTypeface(Ui.font(this, Ui.SEMIBOLD));
         screen.setGravity(Gravity.CENTER);
-        GradientDrawable sg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xFF2B3A7A, 0xFF151A33});
-        sg.setCornerRadius(dp(20));
+        GradientDrawable sg = new GradientDrawable(); sg.setColor(BG);
+        sg.setCornerRadius(dp(21));
         screen.setBackground(sg);
         phone.addView(screen, new FrameLayout.LayoutParams(-1, -1));
 
         final LinearLayout sheet = new LinearLayout(this);
         sheet.setOrientation(LinearLayout.VERTICAL);
-        sheet.setPadding(dp(10), dp(10), dp(10), dp(10));
-        GradientDrawable shg = new GradientDrawable(); shg.setColor(0xF21C1C1E);
-        float r = dp(18); shg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
+        sheet.setPadding(dp(8), dp(6), dp(8), dp(10));
+        GradientDrawable shg = new GradientDrawable(); shg.setColor(Ui.SHEET);
+        float r = dp(14); shg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         sheet.setBackground(shg);
         View grab = new View(this);
-        GradientDrawable gg = new GradientDrawable(); gg.setColor(0xFF5A5A60); gg.setCornerRadius(dp(2)); grab.setBackground(gg);
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(26), dp(4)); glp.gravity = Gravity.CENTER_HORIZONTAL; glp.bottomMargin = dp(10);
+        GradientDrawable gg = new GradientDrawable(); gg.setColor(Ui.GRABBER); gg.setCornerRadius(dp(2)); grab.setBackground(gg);
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(22), dp(3)); glp.gravity = Gravity.CENTER_HORIZONTAL; glp.bottomMargin = dp(8);
         sheet.addView(grab, glp);
-        int[] colors = {0xFFFF6B6B, 0xFFFFC145, 0xFF5BD68A, 0xFF5AA9FF, 0xFFB57BFF, 0xFFFF8FD1, 0xFF4ED8D0, 0xFFFFFFFF,
-                0xFF8E8E93, 0xFFFF9F43, 0xFF6E8BFF, 0xFF34C759};
+        View pill = new View(this);
+        GradientDrawable pg = new GradientDrawable(); pg.setColor(Ui.SEARCH); pg.setCornerRadius(dp(8)); pill.setBackground(pg);
+        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(-1, dp(16)); plp.setMargins(dp(4), 0, dp(4), dp(6));
+        sheet.addView(pill, plp);
+        // Same stand-in icon colours as the demo video's drawer.
+        int[] colors = {0xFF3DB86B, 0xFF4C8DF6, 0xFF5A5D66, 0xFFE89A3C, 0xFF2FA89A, 0xFFD94F70, 0xFF3F6FD8, 0xFF44464E,
+                0xFFD8B43A, 0xFF4AA3E0, 0xFF6B6E78, 0xFF5C7CC9};
         for (int rI = 0; rI < 3; rI++) {
             LinearLayout rowL = new LinearLayout(this);
             rowL.setGravity(Gravity.CENTER);
             for (int c = 0; c < 4; c++) {
                 View ic = new View(this);
-                GradientDrawable ig = new GradientDrawable(); ig.setColor(colors[rI * 4 + c]); ig.setCornerRadius(dp(7)); ic.setBackground(ig);
+                GradientDrawable ig = new GradientDrawable(); ig.setColor(colors[rI * 4 + c]); ig.setCornerRadius(dp(6.5f)); ic.setBackground(ig);
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(24), dp(24)); lp.setMargins(dp(5), dp(6), dp(5), dp(6));
                 rowL.addView(ic, lp);
             }
@@ -360,7 +414,7 @@ public class OnboardingActivity extends Activity {
         final float hidden = dp(220);
         sheet.setTranslationY(hidden);
         tap.setAlpha(0f);
-        final PathInterpolator ease = new PathInterpolator(0.2f, 0f, 0f, 1f);
+        final PathInterpolator ease = new PathInterpolator(0.65f, 0f, 0.35f, 1f);   // ease-in-out, as in the video
         demo = ValueAnimator.ofFloat(0f, 1f);
         demo.setDuration(3600);
         demo.setRepeatCount(ValueAnimator.INFINITE);
@@ -410,51 +464,60 @@ public class OnboardingActivity extends Activity {
     private TextView title(String s) {
         TextView t = new TextView(this);
         t.setText(s); t.setTextColor(Color.WHITE);
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
-        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        t.setTypeface(Ui.font(this, Ui.SEMIBOLD));
         t.setLineSpacing(0, 1.1f);
-        t.setPadding(0, 0, 0, dp(12));
+        t.setPadding(0, 0, 0, dp(10));
         return t;
     }
 
     private TextView text(String s) {
         TextView t = new TextView(this);
-        t.setText(s); t.setTextColor(DIM); t.setTextSize(16);
+        t.setText(s); t.setTextColor(DIM); t.setTextSize(15);
+        t.setTypeface(Ui.font(this, Ui.REGULAR));
         t.setLineSpacing(0, 1.25f);
         t.setPadding(0, 0, 0, dp(12));
         return t;
     }
 
-    private TextView section(String s) {
+    private TextView section(String s, boolean first) {
         TextView t = new TextView(this);
-        t.setText(s.toUpperCase(Locale.US)); t.setTextColor(DIM); t.setTextSize(12);
-        t.setLetterSpacing(0.08f);
-        t.setPadding(dp(4), dp(10), 0, dp(8));
+        t.setText(s.toUpperCase(Locale.US)); t.setTextColor(DIM); t.setTextSize(11);
+        t.setTypeface(Ui.font(this, Ui.SEMIBOLD));
+        t.setLetterSpacing(0.06f);
+        t.setPadding(dp(8), dp(first ? 6 : 12), 0, dp(10));
         return t;
     }
 
     private TextView status(String s) {
         TextView t = new TextView(this);
-        t.setText(s); t.setTextColor(0xFF5BD68A); t.setTextSize(16);
+        t.setText(s); t.setTextColor(0xFF5BD68A); t.setTextSize(15);
+        t.setTypeface(Ui.font(this, Ui.MEDIUM));
         t.setPadding(0, dp(4), 0, dp(14));
         return t;
     }
 
+    /** Accent pill with near-black label, as in the demo's "Set as Home app". */
     private TextView primary(String s, View.OnClickListener l) {
         TextView b = new TextView(this);
-        b.setText(s); b.setTextColor(Color.BLACK); b.setTextSize(17); b.setGravity(Gravity.CENTER);
-        b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        GradientDrawable g = new GradientDrawable(); g.setColor(Color.WHITE); g.setCornerRadius(dp(28));
+        b.setText(s); b.setTextColor(Ui.ON_ACCENT); b.setTextSize(16); b.setGravity(Gravity.CENTER);
+        b.setTypeface(Ui.font(this, Ui.SEMIBOLD));
+        GradientDrawable g = new GradientDrawable(); g.setColor(ACCENT); g.setCornerRadius(dp(25));
         b.setBackground(g);
-        b.setOnClickListener(l);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(56)); lp.topMargin = dp(8);
+        b.setOnClickListener(v -> {
+            v.animate().scaleX(0.96f).scaleY(0.96f).setDuration(90)
+                    .withEndAction(() -> v.animate().scaleX(1f).scaleY(1f).setDuration(140).start()).start();
+            l.onClick(v);
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(50)); lp.topMargin = dp(10);
         b.setLayoutParams(lp);
         return b;
     }
 
     private TextView secondary(String s, View.OnClickListener l) {
         TextView b = new TextView(this);
-        b.setText(s); b.setTextColor(ACCENT); b.setTextSize(16); b.setGravity(Gravity.CENTER);
+        b.setText(s); b.setTextColor(ACCENT); b.setTextSize(15); b.setGravity(Gravity.CENTER);
+        b.setTypeface(Ui.font(this, Ui.MEDIUM));
         b.setOnClickListener(l);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, dp(48)); lp.bottomMargin = dp(4);
         b.setLayoutParams(lp);

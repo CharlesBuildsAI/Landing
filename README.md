@@ -19,18 +19,18 @@ Landing is a tiny Android Home app that disappears. Press Home and you're in Cha
 - **No internet permission, no accounts, no tracking.** Landing can't send anything anywhere.
 
 ## Install
-1. Download [`Landing-1.0.0.apk`](https://github.com/CharlesBuildsAI/Landing/raw/main/release/Landing-1.0.0.apk) on your phone (also linked from [Releases](../../releases)).
+1. Download [`Landing-1.0.1.apk`](https://github.com/CharlesBuildsAI/Landing/raw/main/release/Landing-1.0.1.apk) on your phone (also in [`release/`](release/)).
 2. Open it. If Android asks, allow your browser or file app to "install unknown apps".
 3. Open **Landing** and follow the five-step setup:
-   1. Pick your app.
-   2. Tap **Set as Home app** and choose Landing. If no prompt appears, go to Settings → Apps → Default apps → Home app → Landing.
-   3. (Optional) Turn on **Open on unlock**.
-   4. Learn the double press.
+   1. Pick your app, then tap **Set as Home app** and choose Landing. If no prompt appears, go to Settings → Apps → Default apps → Home app → Landing.
+   2. (Optional) Turn on **Open on unlock**.
+   3. Learn the double press.
 4. Press Home. That's it.
 
 **To undo:** Settings → Apps → Default apps → Home app → pick your old launcher. Then uninstall Landing like any app.
 
-> Upgrading from 0.9.0-beta1? 1.0.0 is signed with a new release key, so uninstall the beta first.
+> Upgrading from 1.0.0? Install 1.0.1 over it; it's signed with the same key and keeps your settings.
+> Upgrading from 0.9.0-beta1? 1.0.x is signed with a new release key, so uninstall the beta first.
 
 ## How it works
 - Landing registers as a Home activity (`CATEGORY_HOME`) with a fully transparent theme and no starting window. On a Home press it starts your chosen app's launch intent with a zero-duration transition, the same intent your old launcher would send, so a running app resumes where you left it.
@@ -55,7 +55,7 @@ Requirements: JDK 17+, plus the Android SDK with **platform 35** and **build-too
 git clone https://github.com/<you>/landing.git
 cd landing
 export ANDROID_HOME=~/Android/Sdk      # wherever your SDK lives
-./build.sh                              # → dist/Landing-1.0.0-debug.apk
+./build.sh                              # → dist/Landing-1.0.1-debug.apk
 ```
 
 Release build with your own key (keep it outside the repo):
@@ -69,13 +69,16 @@ Individual tools can be overridden with `AAPT2`, `D8`, `ZIPALIGN`, `APKSIGNER`, 
 Layout:
 ```
 app/AndroidManifest.xml
-app/res/                         icon + transparent theme
+app/res/                         icon, transparent theme, Geist font
 app/src/com/crit/landing/
   HomeActivity.java              hand-off, double-press drawer, settings
   OnboardingActivity.java        five-step setup
   UnlockService.java             optional open-on-unlock watcher
   BootReceiver.java              restarts the watcher after reboot/update
-  AiApps.java                    which apps are listed under "AI apps"
+  AiApps.java                    which apps are listed under "Featured"
+  Ui.java                        palette, font, and small vector glyphs
+release/                         signed release APKs
+third_party/geist/OFL.txt        font license
 build.sh                         Gradle-free build
 ```
 
@@ -91,3 +94,5 @@ build.sh                         Gradle-free build
 
 ## License
 [MIT](LICENSE) © 2026 Charles Connelly
+
+The bundled [Geist](https://github.com/vercel/geist-font) font is © 2024 The Geist Project Authors, under the [SIL Open Font License 1.1](third_party/geist/OFL.txt).

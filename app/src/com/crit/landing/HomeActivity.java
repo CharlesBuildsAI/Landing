@@ -79,6 +79,7 @@ public class HomeActivity extends Activity {
     static final String KEY_MODE_LABEL = "mode_label";
 
     private static final long DOUBLE_PRESS_MS = 900;
+    private static final float SCRIM = 0.55f;           // dim behind the drawer, as in the demo
     private static volatile String cachedTarget;          // survives across Home presses
     private static final List<App> appCache = new ArrayList<>();
     private static final ExecutorService bg = Executors.newSingleThreadExecutor();
@@ -139,7 +140,7 @@ public class HomeActivity extends Activity {
         if (dbl) { showSheet(); return; }
         if (!launchTarget(this)) {
             showSheet();
-            if (findTargetPackage(this) == null) toast("Pick an app for Home: long-press it, or tap \u2699");
+            if (findTargetPackage(this) == null) toast("Pick an app for Home: long-press it, or tap settings (top right)");
         }
     }
 
@@ -270,8 +271,8 @@ public class HomeActivity extends Activity {
         sheet = new SheetLayout(this);
         sheet.setOrientation(LinearLayout.VERTICAL);
         GradientDrawable bgd = new GradientDrawable();
-        bgd.setColor(Color.parseColor("#F21C1C1E"));
-        float r = dp(28);
+        bgd.setColor(Ui.SHEET);
+        float r = dp(24);
         bgd.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
         sheet.setBackground(bgd);
         sheet.setClipToOutline(true);
@@ -283,53 +284,52 @@ public class HomeActivity extends Activity {
         // Grabber
         View grab = new View(this);
         GradientDrawable gd = new GradientDrawable();
-        gd.setColor(Color.parseColor("#5A5A60"));
-        gd.setCornerRadius(dp(3));
+        gd.setColor(Ui.GRABBER);
+        gd.setCornerRadius(dp(2));
         grab.setBackground(gd);
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(40), dp(5));
+        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(dp(44), dp(4));
         glp.gravity = Gravity.CENTER_HORIZONTAL;
-        glp.setMargins(0, dp(10), 0, dp(14));
+        glp.setMargins(0, dp(9), 0, dp(17));
         sheet.addView(grab, glp);
 
         // Header: search pill + settings
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(16), 0, dp(16), dp(8));
+        header.setPadding(dp(17), 0, dp(12), 0);
 
         search = new EditText(this);
-        search.setHint("Search");
+        search.setHint("Search apps");
         search.setSingleLine(true);
-        search.setTextSize(16);
+        search.setTextSize(15);
+        search.setTypeface(Ui.font(this, Ui.REGULAR));
         search.setTextColor(Color.WHITE);
-        search.setHintTextColor(Color.parseColor("#8E8E93"));
-        search.setPadding(dp(16), dp(10), dp(16), dp(10));
+        search.setHintTextColor(Ui.DIM);
+        search.setGravity(Gravity.CENTER_VERTICAL);
+        search.setPadding(dp(24), 0, dp(16), 0);
         GradientDrawable pill = new GradientDrawable();
-        pill.setColor(Color.parseColor("#2C2C2E"));
-        pill.setCornerRadius(dp(14));
+        pill.setColor(Ui.SEARCH);
+        pill.setCornerRadius(dp(22));
         search.setBackground(pill);
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) { if (adapter != null) adapter.filter(s.toString()); }
             public void afterTextChanged(Editable s) {}
         });
-        header.addView(search, new LinearLayout.LayoutParams(0, -2, 1f));
+        header.addView(search, new LinearLayout.LayoutParams(0, dp(43), 1f));
 
-        TextView gear = new TextView(this);
-        gear.setText("\u2699");
-        gear.setTextSize(22);
-        gear.setTextColor(Color.parseColor("#C7C7CC"));
-        gear.setGravity(Gravity.CENTER);
+        View gear = new Ui.RingDot(this);
+        gear.setContentDescription("Settings");
         gear.setOnClickListener(v -> { haptic(v, HapticFeedbackConstants.VIRTUAL_KEY); showSettings(); });
         LinearLayout.LayoutParams gearLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        gearLp.setMargins(dp(8), 0, 0, 0);
+        gearLp.setMargins(dp(4), 0, 0, 0);
         header.addView(gear, gearLp);
         sheet.addView(header);
 
         grid = new GridView(this);
         grid.setNumColumns(4);
-        grid.setVerticalSpacing(dp(18));
-        grid.setPadding(dp(8), dp(8), dp(8), dp(24));
+        grid.setVerticalSpacing(dp(24));
+        grid.setPadding(dp(8), dp(22), dp(8), dp(24));
         grid.setClipToPadding(false);
         grid.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         grid.setOverScrollMode(View.OVER_SCROLL_NEVER);
@@ -356,8 +356,8 @@ public class HomeActivity extends Activity {
 
         root.setOnApplyWindowInsetsListener((v, in) -> {
             int top = in.getSystemWindowInsetTop();
-            ((FrameLayout.LayoutParams) sheet.getLayoutParams()).topMargin = top + dp(12);
-            grid.setPadding(dp(8), dp(8), dp(8), dp(24) + in.getSystemWindowInsetBottom());
+            ((FrameLayout.LayoutParams) sheet.getLayoutParams()).topMargin = top + dp(32);
+            grid.setPadding(dp(8), dp(22), dp(8), dp(24) + in.getSystemWindowInsetBottom());
             return in;
         });
 
@@ -420,7 +420,8 @@ public class HomeActivity extends Activity {
         final float from = sheet.getTranslationY();
         final float h = Math.max(1f, sheet.getHeight());
         final boolean closing = to > 0;
-        Spring spring = new Spring(closing ? 1.0f : 0.82f, closing ? 600f : 380f,
+        // Critically damped both ways (no overshoot), about 0.4 s: the ease-in-out slide in the demo.
+        Spring spring = new Spring(1.0f, closing ? 200f : 140f,
                 (from - to) == 0 ? 0 : -velocityPxPerS / (from - to));
         sheetAnim = ValueAnimator.ofFloat(0f, 1f);
         sheetAnim.setDuration(spring.durationMs());
@@ -429,7 +430,7 @@ public class HomeActivity extends Activity {
             float f = (float) a.getAnimatedValue();
             float y = from + (to - from) * f;
             sheet.setTranslationY(y);
-            scrim.setAlpha(0.35f * (1f - Math.max(0f, Math.min(1f, y / h))));
+            scrim.setAlpha(SCRIM * (1f - Math.max(0f, Math.min(1f, y / h))));
         });
         sheetAnim.addListener(new AnimatorListenerAdapter() {
             boolean cancelled;
@@ -500,7 +501,7 @@ public class HomeActivity extends Activity {
                     float ty = startTy + dy;
                     if (ty < 0) ty = ty / 4f;            // rubber-band upward
                     setTranslationY(ty);
-                    scrim.setAlpha(0.35f * (1f - Math.max(0f, Math.min(1f, ty / h))));
+                    scrim.setAlpha(SCRIM * (1f - Math.max(0f, Math.min(1f, ty / h))));
                     boolean past = ty > h * 0.25f;
                     if (past != crossed) { crossed = past; haptic(this, thresholdHaptic()); }
                     return true;
@@ -554,12 +555,13 @@ public class HomeActivity extends Activity {
                 iv = new ImageView(HomeActivity.this);
                 cell.addView(iv, new LinearLayout.LayoutParams(dp(56), dp(56)));
                 tv = new TextView(HomeActivity.this);
-                tv.setTextColor(Color.parseColor("#EBEBF5"));
-                tv.setTextSize(12);
+                tv.setTextColor(Ui.LABEL);
+                tv.setTextSize(11);
+                tv.setTypeface(Ui.font(HomeActivity.this, Ui.MEDIUM));
                 tv.setGravity(Gravity.CENTER);
                 tv.setMaxLines(1);
                 tv.setEllipsize(TextUtils.TruncateAt.END);
-                tv.setPadding(dp(2), dp(6), dp(2), 0);
+                tv.setPadding(dp(2), dp(5), dp(2), 0);
                 cell.addView(tv);
             } else {
                 cell = (LinearLayout) cv;
@@ -693,7 +695,7 @@ public class HomeActivity extends Activity {
         l.setPadding(dp(24), dp(20), dp(24), dp(8));
         TextView h = new TextView(this);
         h.setText(head); h.setTextSize(20);
-        h.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
+        h.setTypeface(Ui.font(this, Ui.SEMIBOLD));
         l.addView(h);
         TextView b = new TextView(this);
         b.setText(body); b.setTextSize(14); b.setAlpha(0.7f); b.setPadding(0, dp(6), 0, 0);
